@@ -104,6 +104,7 @@ contract OnchainOmahaGame is Ownable {
     function buy_hand(uint256 game_id, uint256 fid, string calldata uri) public returns(uint256 token_id) { 
         require(buy_in_amount > 0, "Required buy in value");
         Game storage game = games[game_id];
+        require(game.participants[msg.sender].token_id == 0, "One hand per game");
         require(game.state == GameState.ACTIVE, "Game not active");
         require(game.hand_count <= 10, "max hands");
 
