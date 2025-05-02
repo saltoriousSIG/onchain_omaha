@@ -10,16 +10,18 @@ contract Hands is ERC721URIStorage, Ownable {
         string memory name,
         string  memory symbol,
         address _game_contract_address
-    ) ERC721(name, symbol) Ownable(_game_contract_address) {}
+    ) ERC721(name, symbol) Ownable(_game_contract_address) {
+        require(_game_contract_address != address(0), "Invalid game contract address");
+    }
 
-    function mint(address sender, string calldata uri) public payable onlyOwner returns(uint256 token_id) { 
+    function mint(address sender, string calldata uri) public  onlyOwner returns(uint256 token_id) { 
         _mint(sender, tokenid_count);
         _setTokenURI(tokenid_count, uri);
         token_id = tokenid_count;
         tokenid_count++;
     }
 
-    function fetch_current_id() public view returns(uint256 tokenId) { 
+    function fetch_next_id() public view returns(uint256 tokenId) { 
         return tokenid_count;
     }
 

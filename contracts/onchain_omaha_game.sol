@@ -90,8 +90,11 @@ contract OnchainOmahaGame is Ownable {
 
     // start game
     function start_game() public onlyOwner { 
+        require(games[game_count].state != GameState.ACTIVE, "Previous game still active");
         Game storage new_game = games[game_count];
         new_game.game_pot = 0;
+        new_game.participant_list = new address[](0);
+        new_game.hands_in_game = new uint256[](0);
         new_game.state = GameState.ACTIVE;
         emit GameStarted(game_count); 
     }
@@ -106,6 +109,8 @@ contract OnchainOmahaGame is Ownable {
 
         uint256 allowance = IERC20(buy_in_token).allowance(msg.sender, address(this));
         require(allowance >= buy_in_amount, "Allowance not met");
+        IERC20(buy_in_token).transferFrom(msg.sender, address(this), buy_in_amount);
+        token_id = hands_contract.mint(msg.sender, uri);
 
         game.participants[msg.sender] = Participant(
             token_id,
@@ -115,9 +120,6 @@ contract OnchainOmahaGame is Ownable {
         game.hands_in_game.push(token_id);
         game.hand_count++;
         game.participant_list.push(msg.sender);
-
-        IERC20(buy_in_token).transferFrom(msg.sender, address(this), buy_in_amount);
-        token_id = hands_contract.mint(msg.sender, uri);
 
         emit HandBought(game_id, msg.sender, token_id, fid);
     }
@@ -130,26 +132,28 @@ contract OnchainOmahaGame is Ownable {
         Game storage game = games[game_id];
         require(game.state == GameState.ACTIVE, "Game not active");
 
-        uint256 return_amount = (buy_in_amount * 90) / 10 ** buy_in_token_decimals;
+        uint256 return_amount = (buy_in_amount * 90) / 100;
         game.game_pot -= return_amount;
         game.hand_count--;
 
         delete game.participants[msg.sender];
-        for (uint256 i = 0; i < game.participant_list.length - 1; i++) {
-            if (game.participant_list[i] == msg.sender) { 
-                game.participant_list[i] = game.participant_list[i + 1];
+
+        for (uint256 i = 0; i < game.participant_list.length; i++) {
+            if (game.participant_list[i] == msg.sender) {
+                game.participant_list[i] = game.participant_list[game.participant_list.length - 1];
                 game.participant_list.pop();
+                break;
             }
-        }
+      }
         for (uint256 i = 0; i < game.hands_in_game.length - 1; i++) {
             if (game.hands_in_game[i] == token_id) { 
-                game.hands_in_game[i] = game.hands_in_game[i + 1];
+                game.hands_in_game[i] = game.hands_in_game[i - 1];
                 game.hands_in_game.pop();
             }
         }
 
-        IERC20(buy_in_token).transferFrom(address(this), msg.sender, return_amount);
-        emit HandBought(game_id, msg.sender, token_id, return_amount);
+        IERC20(buy_in_token).transfer(msg.sender, return_amount);
+        emit HandFolded(game_id, msg.sender, token_id, return_amount);
     }
 
     // end game
@@ -159,7 +163,8 @@ contract OnchainOmahaGame is Ownable {
         require(game.state == GameState.ACTIVE, "Game not active");
 
         uint256 num_winners = _winners.length;
-        uint256 payout = game.game_pot / num_winners;
+        uint256 rake = (game.game_pot * 10) / 100;
+        uint256 payout = (game.game_pot  - rake) / num_winners;
 
         for (uint256 i = 0; i < _winners.length; i++) { 
             game.winner[_winners[i]] = Winner(
@@ -170,6 +175,8 @@ contract OnchainOmahaGame is Ownable {
 
         game.state = GameState.COMPLETED;
         game_count++;
+        require(IERC20(buy_in_token).balanceOf(address(this)) > rake, "Insufficient funds");
+        IERC20(buy_in_token).transfer(owner(), rake);
         emit GameEnded(game_id, _winners);
     }
 
@@ -180,7 +187,9 @@ contract OnchainOmahaGame is Ownable {
         require(!game.winner[msg.sender].claimed, "Already claimed");
 
         if(game.winner[msg.sender].amount_won > 0) { 
-            IERC20(buy_in_token).transferFrom(address(this), msg.sender, game.winner[msg.sender].amount_won);
+            game.winner[msg.sender].claimed = true;
+            require(IERC20(buy_in_token).balanceOf(address(this)) > game.winner[msg.sender].amount_won, "Insufficient funds");
+            IERC20(buy_in_token).transfer(msg.sender, game.winner[msg.sender].amount_won);
             emit Claimed(game_id, msg.sender, game.winner[msg.sender].amount_won);
         }
 
